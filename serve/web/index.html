@@ -68,6 +68,10 @@ const profile = document.getElementById("profile");
 
 gen.onclick = () => {
   const pair = wgGenerateKeyPair();
+  if (pair.error) {
+    alert("Key generation failed:\n" + pair.error);
+    return;
+  }
   document.getElementById("private").value = pair.privateKey;
   document.getElementById("public").value = pair.publicKey;
   profile.disabled = false;

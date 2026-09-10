@@ -7,7 +7,9 @@ Generates WireGuard X25519 keypairs entirely in the browser — no key ever leav
 The embedded `profile.zip` ships with the config carrying a `<PRIVATEKEY>`
 placeholder. The "Download profile with key" button fetches it, rewrites
 every placeholder occurrence with the generated private key (client-side,
-in the wasm module) and saves the result as `profile.zip`.
+in the wasm module) and saves the result as `profile.zip`. A zip without
+that placeholder is refused with a message instead of producing a keyless
+profile.
 
 ## Build
 
@@ -18,6 +20,17 @@ generated files.
 ```sh
 make
 ```
+
+## Test
+
+`go test ./...` cannot build the root package (it is `js/wasm` only), so use:
+
+```sh
+make test
+```
+
+That runs the server and profile tests natively and the wasm module tests
+under node.
 
 ## Run
 

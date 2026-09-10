@@ -3,6 +3,7 @@ package profile
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"io"
 	"reflect"
 	"testing"
@@ -65,6 +66,14 @@ func TestWithKey(t *testing.T) {
 	}
 	if !reflect.DeepEqual(readZip(t, got), want) {
 		t.Fatalf("got %v, want %v", readZip(t, got), want)
+	}
+}
+
+func TestWithKeyNoPlaceholder(t *testing.T) {
+	in := zipBytes(t, map[string]string{"wg0.conf": "PrivateKey = abc\n"})
+
+	if _, err := WithKey(in, "some-key"); !errors.Is(err, ErrNoPlaceholder) {
+		t.Fatalf("got %v, want ErrNoPlaceholder", err)
 	}
 }
 
