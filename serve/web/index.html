@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WireGuard Keygen</title>
+<style>
+  :root { color-scheme: light dark; --fg: #111; --bg: #fff; --muted: #666; --line: #d8d8d8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e8e8e8; --bg: #16181c; --muted: #999; --line: #33373d; }
+  }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.5 system-ui, sans-serif;
+  }
+  main { width: min(560px, 92vw); padding: 2rem 0; }
+  h1 { font-size: 1.25rem; margin: 0 0 1.5rem; }
+  button {
+    font: inherit; color: inherit; background: none;
+    border: 1px solid var(--line); border-radius: 6px; padding: .5rem 1rem; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--fg); }
+  button:disabled { opacity: .5; cursor: default; }
+  label { display: block; margin-top: 1.25rem; font-size: .8rem; color: var(--muted); }
+  .row { display: flex; gap: .5rem; margin-top: .25rem; }
+  input {
+    flex: 1; font: 14px/1 ui-monospace, monospace; color: inherit; background: none;
+    border: 1px solid var(--line); border-radius: 6px; padding: .5rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>WireGuard Keygen</h1>
+  <button id="gen" disabled>Generate keypair</button>
+
+  <label for="private">Private key</label>
+  <div class="row">
+    <input id="private" readonly>
+    <button data-copy="private">Copy</button>
+  </div>
+
+  <label for="public">Public key</label>
+  <div class="row">
+    <input id="public" readonly>
+    <button data-copy="public">Copy</button>
+  </div>
+
+  <label>Profile</label>
+  <div class="row">
+    <button id="profile" disabled>Download profile with key</button>
+  </div>
+</main>
+
+<script src="wasm_exec.js"></script>
+<script>
+// The Go/JS bridge only carries strings, so the zip travels as base64.
+function bytesToBase64(bytes) {
+	let bin = "";
+	for (let i = 0; i < bytes.length; i += 0x8000)
+		bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+	return btoa(bin);
+}
+
+const gen = document.getElementById("gen");
+const profile = document.getElementById("profile");
+
+gen.onclick = () => {
+  const pair = wgGenerateKeyPair();
+  document.getElementById("private").value = pair.privateKey;
+  document.getElementById("public").value = pair.publicKey;
+  profile.disabled = false;
+};
+
+profile.onclick = async () => {
+  const key = document.getElementById("private").value;
+  if (!key) return;
+
+  let zipB64;
+  try {
+    const resp = await fetch("profile.zip");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    zipB64 = bytesToBase64(new Uint8Array(await resp.arrayBuffer()));
+  } catch (error) {
+    alert("Loading profile.zip failed:\n" + error);
+    return;
+  }
+
+  const result = wgBuildProfile(zipB64, key);
+  if (result.error) {
+    alert("Building profile.zip failed:\n" + result.error);
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = "data:application/zip;base64," + result.zip;
+  link.download = "profile.zip";
+  link.click();
+
+  profile.textContent = "Downloaded";
+  setTimeout(() => (profile.textContent = "Download profile with key"), 1000);
+};
+
+for (const button of document.querySelectorAll("[data-copy]")) {
+  button.onclick = async () => {
+    const value = document.getElementById(button.dataset.copy).value;
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    button.textContent = "Copied";
+    setTimeout(() => (button.textContent = "Copy"), 1000);
+  };
+}
+
+const go = new Go();
+WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject).then((result) => {
+  go.run(result.instance);
+  gen.disabled = false;
+  gen.click();
+});
+</script>
+</body>
+</html>
