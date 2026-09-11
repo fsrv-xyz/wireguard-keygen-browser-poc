@@ -2,10 +2,17 @@ package main
 
 import (
 	"crypto/ecdh"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"syscall/js"
 
 	"wireguard-keygen/profile"
@@ -58,6 +65,38 @@ func buildProfile(_ js.Value, args []js.Value) any {
 	return map[string]any{"zip": base64.StdEncoding.EncodeToString(out)}
 }
 
+// generateCSR creates an X.509 client key pair and a certificate
+// request for it. Only the request is meant to leave the browser.
+func generateCSR(_ js.Value, args []js.Value) any {
+	commonName, err := stringArg(args, 0, "commonName")
+	if err != nil {
+		return errorResult(err)
+	}
+	commonName = strings.TrimSpace(commonName)
+	if commonName == "" {
+		return errorResult(errors.New("common name must not be empty"))
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return errorResult(err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return errorResult(err)
+	}
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: commonName},
+	}, key)
+	if err != nil {
+		return errorResult(err)
+	}
+	return map[string]any{
+		"privateKey": string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})),
+		"csr":        string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})),
+	}
+}
+
 // errorResult ends the error chain: the bridge carries the message to
 // JavaScript, which shows it verbatim.
 func errorResult(err error) map[string]any {
@@ -77,5 +116,6 @@ func stringArg(args []js.Value, i int, name string) (string, error) {
 func main() {
 	js.Global().Set("wgGenerateKeyPair", js.FuncOf(generateKeyPair))
 	js.Global().Set("wgBuildProfile", js.FuncOf(buildProfile))
+	js.Global().Set("x509GenerateCSR", js.FuncOf(generateCSR))
 	select {}
 }

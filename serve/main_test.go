@@ -3,16 +3,26 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
-	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"wireguard-keygen/serve/web"
+	"wireguard-keygen/ca"
 )
 
 func TestServedContent(t *testing.T) {
-	srv := httptest.NewServer(http.FileServerFS(web.Files))
+	authority, err := ca.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(handler(authority))
 	defer srv.Close()
 
 	get := func(path string) (int, []byte) {
@@ -60,5 +70,83 @@ func TestServedContent(t *testing.T) {
 		if code, _ := get(path); code == 200 {
 			t.Errorf("GET %s: served, want 4xx", path)
 		}
+	}
+}
+
+func csrPEM(t *testing.T, cn string) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: cn},
+	}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}))
+}
+
+func TestSign(t *testing.T) {
+	authority, err := ca.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(handler(authority))
+	defer srv.Close()
+
+	res, err := srv.Client().Post(srv.URL+"/sign", "application/x-pem-file", strings.NewReader(csrPEM(t, "alice")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 200 {
+		t.Fatalf("POST /sign: code %d, body %q", res.StatusCode, body)
+	}
+
+	block, _ := pem.Decode(body)
+	if block == nil {
+		t.Fatalf("POST /sign returned %q, want a PEM certificate", body)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(authority.Cert)
+	if _, err := cert.Verify(x509.VerifyOptions{
+		Roots:     pool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}); err != nil {
+		t.Errorf("verify against the CA: %v", err)
+	}
+}
+
+func TestSign_rejects(t *testing.T) {
+	authority, err := ca.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(handler(authority))
+	defer srv.Close()
+
+	res, err := srv.Client().Post(srv.URL+"/sign", "application/x-pem-file", strings.NewReader("not a csr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 400 {
+		t.Errorf("POST /sign with garbage: code %d, want 400", res.StatusCode)
+	}
+
+	get, err := srv.Client().Get(srv.URL + "/sign")
+	if err != nil {
+		t.Fatal(err)
+	}
+	get.Body.Close()
+	if get.StatusCode != 405 {
+		t.Errorf("GET /sign: code %d, want 405", get.StatusCode)
 	}
 }

@@ -5,7 +5,10 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"io"
 	"strings"
 	"syscall/js"
@@ -150,5 +153,61 @@ func TestBuildProfile(t *testing.T) {
 	}
 	if want := "PrivateKey = " + key + "\n"; string(content) != want {
 		t.Errorf("got %q, want %q", content, want)
+	}
+}
+
+func TestGenerateCSR(t *testing.T) {
+	got, ok := generateCSR(js.Undefined(), []js.Value{js.ValueOf("alice")}).(map[string]any)
+	if !ok {
+		t.Fatal("generateCSR did not return an object")
+	}
+	if msg, _ := got["error"].(string); msg != "" {
+		t.Fatalf("unexpected error: %s", msg)
+	}
+
+	keyBlock, _ := pem.Decode([]byte(got["privateKey"].(string)))
+	if keyBlock == nil || keyBlock.Type != "PRIVATE KEY" {
+		t.Fatalf("privateKey %q, want a PRIVATE KEY block", got["privateKey"])
+	}
+	key, err := x509.ParsePKCS8PrivateKey(keyBlock.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	csrBlock, _ := pem.Decode([]byte(got["csr"].(string)))
+	if csrBlock == nil || csrBlock.Type != "CERTIFICATE REQUEST" {
+		t.Fatalf("csr %q, want a CERTIFICATE REQUEST block", got["csr"])
+	}
+	csr, err := x509.ParseCertificateRequest(csrBlock.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := csr.CheckSignature(); err != nil {
+		t.Errorf("certificate request signature: %v", err)
+	}
+	if csr.Subject.CommonName != "alice" {
+		t.Errorf("common name %q, want alice", csr.Subject.CommonName)
+	}
+	if !key.(*ecdsa.PrivateKey).PublicKey.Equal(csr.PublicKey) {
+		t.Error("the certificate request carries a different public key than the private key")
+	}
+}
+
+func TestGenerateCSR_argumentErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []js.Value
+		want string
+	}{
+		{"no_args", nil, "missing argument commonName"},
+		{"not_a_string", []js.Value{js.ValueOf(7)}, "argument commonName: want a string, got number"},
+		{"empty", []js.Value{js.ValueOf("  ")}, "common name must not be empty"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := resultError(t, generateCSR(js.Undefined(), tc.args))
+			if !strings.Contains(msg, tc.want) {
+				t.Errorf("got %q, want it to mention %q", msg, tc.want)
+			}
+		})
 	}
 }

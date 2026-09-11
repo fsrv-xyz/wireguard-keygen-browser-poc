@@ -16,6 +16,10 @@
   }
   main { width: min(560px, 92vw); padding: 2rem 0; }
   h1 { font-size: 1.25rem; margin: 0 0 1.5rem; }
+  h2 {
+    font-size: 1rem; margin: 2.5rem 0 0; padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+  }
   button {
     font: inherit; color: inherit; background: none;
     border: 1px solid var(--line); border-radius: 6px; padding: .5rem 1rem; cursor: pointer;
@@ -24,10 +28,11 @@
   button:disabled { opacity: .5; cursor: default; }
   label { display: block; margin-top: 1.25rem; font-size: .8rem; color: var(--muted); }
   .row { display: flex; gap: .5rem; margin-top: .25rem; }
-  input {
-    flex: 1; font: 14px/1 ui-monospace, monospace; color: inherit; background: none;
+  input, textarea {
+    flex: 1; font: 14px/1.4 ui-monospace, monospace; color: inherit; background: none;
     border: 1px solid var(--line); border-radius: 6px; padding: .5rem;
   }
+  textarea { resize: vertical; }
 </style>
 </head>
 <body>
@@ -51,6 +56,26 @@
   <div class="row">
     <button id="profile" disabled>Download profile with key</button>
   </div>
+
+  <h2>X.509 Certificate</h2>
+
+  <label for="commonName">Common name</label>
+  <div class="row">
+    <input id="commonName" value="client">
+    <button id="csr" disabled>Generate key + certificate</button>
+  </div>
+
+  <label for="certKey">Private key</label>
+  <div class="row">
+    <textarea id="certKey" rows="6" readonly></textarea>
+    <button data-copy="certKey">Copy</button>
+  </div>
+
+  <label for="certificate">Certificate</label>
+  <div class="row">
+    <textarea id="certificate" rows="8" readonly></textarea>
+    <button data-copy="certificate">Copy</button>
+  </div>
 </main>
 
 <script src="wasm_exec.js"></script>
@@ -65,6 +90,7 @@ function bytesToBase64(bytes) {
 
 const gen = document.getElementById("gen");
 const profile = document.getElementById("profile");
+const csr = document.getElementById("csr");
 
 gen.onclick = () => {
   const pair = wgGenerateKeyPair();
@@ -106,6 +132,31 @@ profile.onclick = async () => {
   setTimeout(() => (profile.textContent = "Download profile with key"), 1000);
 };
 
+// The private key stays in the browser; only the certificate request
+// is sent to the server, which signs it with its in-memory CA.
+csr.onclick = async () => {
+  const request = x509GenerateCSR(document.getElementById("commonName").value);
+  if (request.error) {
+    alert("Generating the certificate request failed:\n" + request.error);
+    return;
+  }
+  document.getElementById("certKey").value = request.privateKey;
+  document.getElementById("certificate").value = "";
+
+  try {
+    const resp = await fetch("sign", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-pem-file" },
+      body: request.csr,
+    });
+    const body = await resp.text();
+    if (!resp.ok) throw new Error(body.trim() || "HTTP " + resp.status);
+    document.getElementById("certificate").value = body;
+  } catch (error) {
+    alert("Signing the certificate request failed:\n" + error.message);
+  }
+};
+
 for (const button of document.querySelectorAll("[data-copy]")) {
   button.onclick = async () => {
     const value = document.getElementById(button.dataset.copy).value;
@@ -120,6 +171,7 @@ const go = new Go();
 WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject).then((result) => {
   go.run(result.instance);
   gen.disabled = false;
+  csr.disabled = false;
   gen.click();
 });
 </script>

@@ -22,7 +22,7 @@ $(PROFILE): wg0.conf
 # That runtime caps argv plus environment at 8 KB, which a nix devshell or a CI
 # runner exceeds, so the wasm test gets a pruned environment.
 test: $(PROFILE)
-	go test ./profile ./serve
+	go test ./ca ./profile ./serve
 	@env -i PATH="$(PATH)" HOME="$(HOME)" GOOS=js GOARCH=wasm \
 		go test -exec="$(shell go env GOROOT)/lib/wasm/go_js_wasm_exec" .
 
