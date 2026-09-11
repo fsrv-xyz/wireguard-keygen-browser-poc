@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"wireguard-keygen/ca"
+	"browser-keygen/ca"
 )
 
 func TestServedContent(t *testing.T) {
@@ -35,8 +35,14 @@ func TestServedContent(t *testing.T) {
 		return res.StatusCode, body
 	}
 
-	if code, body := get("/"); code != 200 || !bytes.Contains(body, []byte("WireGuard Keygen")) {
+	// The shell carries both branches, so its title names neither.
+	if code, body := get("/"); code != 200 || !bytes.Contains(body, []byte("<title>Browser Keygen</title>")) {
 		t.Errorf("GET /: code %d, want index page", code)
+	}
+	for _, heading := range []string{"<h2>WireGuard</h2>", "<h2>X.509 Certificate</h2>"} {
+		if _, body := get("/"); !bytes.Contains(body, []byte(heading)) {
+			t.Errorf("index page is missing %s", heading)
+		}
 	}
 	if code, body := get("/main.wasm"); code != 200 || len(body) < 4 || !bytes.Equal(body[:4], []byte("\x00asm")) {
 		t.Errorf("GET /main.wasm: code %d, want wasm magic", code)

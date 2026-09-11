@@ -43,7 +43,7 @@ func New() (*CA, error) {
 	}
 	template := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "wireguard-keygen in-memory CA"},
+		Subject:               pkix.Name{CommonName: "browser-keygen in-memory CA"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(caValidity),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,

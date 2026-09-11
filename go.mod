@@ -1,3 +1,3 @@
-module wireguard-keygen
+module browser-keygen
 
 go 1.27

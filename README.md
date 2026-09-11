@@ -1,8 +1,12 @@
-# WireGuard Keygen (Go + WebAssembly)
+# Browser Keygen (Go + WebAssembly)
 
-Generates WireGuard X25519 keypairs entirely in the browser — no key ever leaves the machine.
+Generates private keys in the browser, in a Go wasm module. No private key
+ever leaves the machine. Two independent branches share the page: WireGuard
+keypairs and X.509 client certificates.
 
-## Profile
+## WireGuard
+
+The "Generate keypair" button derives an X25519 keypair in the wasm module.
 
 `profile.zip` is built from `wg0.conf`, which carries a `<PRIVATEKEY>`
 placeholder. The "Download profile with key" button fetches it from
@@ -11,7 +15,7 @@ generated private key (client-side, in the wasm module) and saves the result
 as `profile.zip`. A zip without that placeholder is refused with a message
 instead of producing a keyless profile.
 
-## X.509 certificates
+## X.509
 
 The browser generates an ECDSA P-256 key and a certificate request for the
 common name that was entered, `POST`s the request to `/api/x509/sign` and

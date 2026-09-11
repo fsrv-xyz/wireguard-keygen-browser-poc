@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WireGuard Keygen</title>
+<title>Browser Keygen</title>
 <style>
   :root { color-scheme: light dark; --fg: #111; --bg: #fff; --muted: #666; --line: #d8d8d8; }
   @media (prefers-color-scheme: dark) {
@@ -20,6 +20,7 @@
     font-size: 1rem; margin: 2.5rem 0 0; padding-top: 1.5rem;
     border-top: 1px solid var(--line);
   }
+  h2:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
   button {
     font: inherit; color: inherit; background: none;
     border: 1px solid var(--line); border-radius: 6px; padding: .5rem 1rem; cursor: pointer;
@@ -37,8 +38,12 @@
 </head>
 <body>
 <main>
-  <h1>WireGuard Keygen</h1>
-  <button id="gen" disabled>Generate keypair</button>
+  <h1>Browser Keygen</h1>
+
+  <h2>WireGuard</h2>
+  <div class="row">
+    <button id="gen" disabled>Generate keypair</button>
+  </div>
 
   <label for="private">Private key</label>
   <div class="row">

@@ -14,7 +14,7 @@ import (
 	"syscall/js"
 	"testing"
 
-	"wireguard-keygen/profile"
+	"browser-keygen/profile"
 )
 
 func zipB64(t *testing.T, name, content string) string {

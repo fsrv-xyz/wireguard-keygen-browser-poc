@@ -17,7 +17,7 @@ import (
 	"strings"
 	"syscall/js"
 
-	"wireguard-keygen/profile"
+	"browser-keygen/profile"
 )
 
 // keyLen is the length of a WireGuard private key, in bytes.

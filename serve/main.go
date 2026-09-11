@@ -6,8 +6,8 @@ import (
 	"log"
 	"net/http"
 
-	"wireguard-keygen/ca"
-	"wireguard-keygen/serve/web"
+	"browser-keygen/ca"
+	"browser-keygen/serve/web"
 )
 
 // maxCSRSize bounds the request body; a P-256 certificate request in PEM
