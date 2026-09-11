@@ -7,9 +7,12 @@ SERVE     := serve/serve
 
 all: build
 
+# wasm_exec.js is read-only in the Go toolchain. cp would carry that mode
+# over, and the next build would fail on its own output, so install sets the
+# mode explicitly.
 build: $(PROFILE)
 	GOOS=js GOARCH=wasm go build -ldflags="-s -w" -trimpath -o $(WASM) .
-	cp $(shell go env GOROOT)/lib/wasm/wasm_exec.js $(WASM_EXEC)
+	install -m 644 $(shell go env GOROOT)/lib/wasm/wasm_exec.js $(WASM_EXEC)
 	go build -o $(SERVE) ./serve
 
 # zip updates an existing archive in place and would keep files that
