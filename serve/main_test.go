@@ -45,12 +45,34 @@ func TestServedContent(t *testing.T) {
 		t.Errorf("GET /wasm_exec.js: code %d, want 200", code)
 	}
 
-	// The profile zip must serve as a parseable zip whose config still
-	// carries the placeholder.
-	code, body := get("/profile.zip")
-	if code != 200 {
-		t.Fatalf("GET /profile.zip: code %d, want 200", code)
+	// Anything that is not one of the shared shell files stays out:
+	// repository sources, path traversal, and the profile zip, which
+	// belongs to the WireGuard API branch alone.
+	for _, path := range []string{"/go.mod", "/wg0.conf", "/../go.mod", "/profile.zip"} {
+		if code, _ := get(path); code == 200 {
+			t.Errorf("GET %s: served, want 4xx", path)
+		}
 	}
+}
+
+func TestProfile(t *testing.T) {
+	authority, err := ca.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(handler(authority))
+	defer srv.Close()
+
+	res, err := srv.Client().Get(srv.URL + "/api/wireguard/profile.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 200 {
+		t.Fatalf("GET /api/wireguard/profile.zip: code %d", res.StatusCode)
+	}
+
 	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	if err != nil || len(zr.File) != 1 {
 		t.Fatalf("profile.zip: files %d, err %v", len(zr.File), err)
@@ -64,12 +86,53 @@ func TestServedContent(t *testing.T) {
 		t.Errorf("wg0.conf: %q, want placeholder", confContent)
 	}
 
-	// Anything that is not one of the embedded files stays out,
-	// including repository sources and path traversal.
-	for _, path := range []string{"/go.mod", "/wg0.conf", "/../go.mod"} {
-		if code, _ := get(path); code == 200 {
-			t.Errorf("GET %s: served, want 4xx", path)
-		}
+	post, err := srv.Client().Post(srv.URL+"/api/wireguard/profile.zip", "application/zip", strings.NewReader("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.Body.Close()
+	if post.StatusCode != 405 {
+		t.Errorf("POST /api/wireguard/profile.zip: code %d, want 405", post.StatusCode)
+	}
+}
+
+func TestCACertificate(t *testing.T) {
+	authority, err := ca.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(handler(authority))
+	defer srv.Close()
+
+	res, err := srv.Client().Get(srv.URL + "/api/x509/ca.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 200 {
+		t.Fatalf("GET /api/x509/ca.pem: code %d", res.StatusCode)
+	}
+
+	block, _ := pem.Decode(body)
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatalf("got %q, want a CERTIFICATE block", body)
+	}
+	served, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !served.Equal(authority.Cert) {
+		t.Errorf("served %q, want the running authority", served.Subject)
+	}
+
+	post, err := srv.Client().Post(srv.URL+"/api/x509/ca.pem", "application/x-pem-file", strings.NewReader("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.Body.Close()
+	if post.StatusCode != 405 {
+		t.Errorf("POST /api/x509/ca.pem: code %d, want 405", post.StatusCode)
 	}
 }
 
@@ -96,19 +159,19 @@ func TestSign(t *testing.T) {
 	srv := httptest.NewServer(handler(authority))
 	defer srv.Close()
 
-	res, err := srv.Client().Post(srv.URL+"/sign", "application/x-pem-file", strings.NewReader(csrPEM(t, "alice")))
+	res, err := srv.Client().Post(srv.URL+"/api/x509/sign", "application/x-pem-file", strings.NewReader(csrPEM(t, "alice")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != 200 {
-		t.Fatalf("POST /sign: code %d, body %q", res.StatusCode, body)
+		t.Fatalf("POST /api/x509/sign: code %d, body %q", res.StatusCode, body)
 	}
 
 	block, _ := pem.Decode(body)
 	if block == nil {
-		t.Fatalf("POST /sign returned %q, want a PEM certificate", body)
+		t.Fatalf("POST /api/x509/sign returned %q, want a PEM certificate", body)
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
@@ -132,21 +195,21 @@ func TestSign_rejects(t *testing.T) {
 	srv := httptest.NewServer(handler(authority))
 	defer srv.Close()
 
-	res, err := srv.Client().Post(srv.URL+"/sign", "application/x-pem-file", strings.NewReader("not a csr"))
+	res, err := srv.Client().Post(srv.URL+"/api/x509/sign", "application/x-pem-file", strings.NewReader("not a csr"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	res.Body.Close()
 	if res.StatusCode != 400 {
-		t.Errorf("POST /sign with garbage: code %d, want 400", res.StatusCode)
+		t.Errorf("POST /api/x509/sign with garbage: code %d, want 400", res.StatusCode)
 	}
 
-	get, err := srv.Client().Get(srv.URL + "/sign")
+	get, err := srv.Client().Get(srv.URL + "/api/x509/sign")
 	if err != nil {
 		t.Fatal(err)
 	}
 	get.Body.Close()
 	if get.StatusCode != 405 {
-		t.Errorf("GET /sign: code %d, want 405", get.StatusCode)
+		t.Errorf("GET /api/x509/sign: code %d, want 405", get.StatusCode)
 	}
 }

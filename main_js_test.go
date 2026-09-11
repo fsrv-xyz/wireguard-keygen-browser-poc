@@ -211,3 +211,73 @@ func TestGenerateCSR_argumentErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildBundle(t *testing.T) {
+	want := map[string]string{
+		"key.pem":  "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n",
+		"cert.pem": "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----\n",
+		"ca.pem":   "-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----\n",
+	}
+
+	got, ok := buildBundle(js.Undefined(), []js.Value{
+		js.ValueOf(want["key.pem"]), js.ValueOf(want["cert.pem"]), js.ValueOf(want["ca.pem"]),
+	}).(map[string]any)
+	if !ok {
+		t.Fatal("buildBundle did not return an object")
+	}
+	if msg, _ := got["error"].(string); msg != "" {
+		t.Fatalf("unexpected error: %s", msg)
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(got["zip"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(zr.File) != len(want) {
+		t.Fatalf("bundle holds %d files, want %d", len(zr.File), len(want))
+	}
+	for _, f := range zr.File {
+		content, ok := want[f.Name]
+		if !ok {
+			t.Errorf("unexpected file %q in the bundle", f.Name)
+			continue
+		}
+		src, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		archived, err := io.ReadAll(src)
+		src.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(archived) != content {
+			t.Errorf("%s: got %q, want %q", f.Name, archived, content)
+		}
+	}
+}
+
+func TestBuildBundle_argumentErrors(t *testing.T) {
+	anyPEM := js.ValueOf("-----BEGIN CERTIFICATE-----\n")
+	for _, tc := range []struct {
+		name string
+		args []js.Value
+		want string
+	}{
+		{"no_args", nil, "missing argument privateKey"},
+		{"key_only", []js.Value{anyPEM}, "missing argument certificate"},
+		{"no_ca", []js.Value{anyPEM, anyPEM}, "missing argument caCertificate"},
+		{"ca_not_a_string", []js.Value{anyPEM, anyPEM, js.ValueOf(7)}, "argument caCertificate: want a string, got number"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := resultError(t, buildBundle(js.Undefined(), tc.args))
+			if !strings.Contains(msg, tc.want) {
+				t.Errorf("got %q, want it to mention %q", msg, tc.want)
+			}
+		})
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/pem"
 	"io"
 	"log"
 	"net/http"
@@ -33,13 +34,34 @@ func accessLog(next http.Handler) http.Handler {
 	})
 }
 
-func sign(authority *ca.CA) http.HandlerFunc {
+// onlyMethod answers every other method with 405. The mux cannot do it:
+// the FileServer catch-all matches those requests too and would turn them
+// into a 404.
+func onlyMethod(method string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodPost)
-			http.Error(w, "only POST is allowed", http.StatusMethodNotAllowed)
+		if r.Method != method {
+			w.Header().Set("Allow", method)
+			http.Error(w, "only "+method+" is allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		next(w, r)
+	}
+}
+
+func profile(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/zip")
+	w.Write(web.Profile)
+}
+
+func caCertificate(authority *ca.CA) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/x-pem-file")
+		w.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: authority.Cert.Raw}))
+	}
+}
+
+func sign(authority *ca.CA) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		csrPEM, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxCSRSize))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -57,7 +79,9 @@ func sign(authority *ca.CA) http.HandlerFunc {
 
 func handler(authority *ca.CA) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/sign", sign(authority))
+	mux.HandleFunc("/api/wireguard/profile.zip", onlyMethod(http.MethodGet, profile))
+	mux.HandleFunc("/api/x509/ca.pem", onlyMethod(http.MethodGet, caCertificate(authority)))
+	mux.HandleFunc("/api/x509/sign", onlyMethod(http.MethodPost, sign(authority)))
 	mux.Handle("/", http.FileServerFS(web.Files))
 	return mux
 }

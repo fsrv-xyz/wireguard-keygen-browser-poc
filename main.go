@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -97,6 +99,35 @@ func generateCSR(_ js.Value, args []js.Value) any {
 	}
 }
 
+// buildBundle packs the client key, its certificate and the issuing CA
+// certificate into a zip. The key is only ever assembled here, in the
+// browser; the zip travels back as base64 for the same reason the
+// profile zip does.
+func buildBundle(_ js.Value, args []js.Value) any {
+	names := []string{"privateKey", "certificate", "caCertificate"}
+	files := []string{"key.pem", "cert.pem", "ca.pem"}
+
+	var out bytes.Buffer
+	w := zip.NewWriter(&out)
+	for i, name := range names {
+		content, err := stringArg(args, i, name)
+		if err != nil {
+			return errorResult(err)
+		}
+		f, err := w.Create(files[i])
+		if err != nil {
+			return errorResult(err)
+		}
+		if _, err := f.Write([]byte(content)); err != nil {
+			return errorResult(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		return errorResult(err)
+	}
+	return map[string]any{"zip": base64.StdEncoding.EncodeToString(out.Bytes())}
+}
+
 // errorResult ends the error chain: the bridge carries the message to
 // JavaScript, which shows it verbatim.
 func errorResult(err error) map[string]any {
@@ -117,5 +148,6 @@ func main() {
 	js.Global().Set("wgGenerateKeyPair", js.FuncOf(generateKeyPair))
 	js.Global().Set("wgBuildProfile", js.FuncOf(buildProfile))
 	js.Global().Set("x509GenerateCSR", js.FuncOf(generateCSR))
+	js.Global().Set("x509BuildBundle", js.FuncOf(buildBundle))
 	select {}
 }

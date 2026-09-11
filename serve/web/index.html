@@ -76,6 +76,11 @@
     <textarea id="certificate" rows="8" readonly></textarea>
     <button data-copy="certificate">Copy</button>
   </div>
+
+  <label>Bundle</label>
+  <div class="row">
+    <button id="bundle" disabled>Download key, certificate and CA</button>
+  </div>
 </main>
 
 <script src="wasm_exec.js"></script>
@@ -91,6 +96,7 @@ function bytesToBase64(bytes) {
 const gen = document.getElementById("gen");
 const profile = document.getElementById("profile");
 const csr = document.getElementById("csr");
+const bundle = document.getElementById("bundle");
 
 gen.onclick = () => {
   const pair = wgGenerateKeyPair();
@@ -109,7 +115,7 @@ profile.onclick = async () => {
 
   let zipB64;
   try {
-    const resp = await fetch("profile.zip");
+    const resp = await fetch("/api/wireguard/profile.zip");
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     zipB64 = bytesToBase64(new Uint8Array(await resp.arrayBuffer()));
   } catch (error) {
@@ -142,9 +148,10 @@ csr.onclick = async () => {
   }
   document.getElementById("certKey").value = request.privateKey;
   document.getElementById("certificate").value = "";
+  bundle.disabled = true;
 
   try {
-    const resp = await fetch("sign", {
+    const resp = await fetch("/api/x509/sign", {
       method: "POST",
       headers: { "Content-Type": "application/x-pem-file" },
       body: request.csr,
@@ -152,9 +159,40 @@ csr.onclick = async () => {
     const body = await resp.text();
     if (!resp.ok) throw new Error(body.trim() || "HTTP " + resp.status);
     document.getElementById("certificate").value = body;
+    bundle.disabled = false;
   } catch (error) {
     alert("Signing the certificate request failed:\n" + error.message);
   }
+};
+
+bundle.onclick = async () => {
+  let caPEM;
+  try {
+    const resp = await fetch("/api/x509/ca.pem");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    caPEM = await resp.text();
+  } catch (error) {
+    alert("Loading the CA certificate failed:\n" + error.message);
+    return;
+  }
+
+  const result = x509BuildBundle(
+    document.getElementById("certKey").value,
+    document.getElementById("certificate").value,
+    caPEM,
+  );
+  if (result.error) {
+    alert("Building the bundle failed:\n" + result.error);
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = "data:application/zip;base64," + result.zip;
+  link.download = "certificate.zip";
+  link.click();
+
+  bundle.textContent = "Downloaded";
+  setTimeout(() => (bundle.textContent = "Download key, certificate and CA"), 1000);
 };
 
 for (const button of document.querySelectorAll("[data-copy]")) {
